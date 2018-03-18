@@ -69,7 +69,35 @@ final class SymfonyExtension implements Extension
     /**
      * Enable or disable the debug mode
      */
-    private const DEBUG_MODE = false;
+    private const DEFAULT_DEBUG_MODE = true;
+
+    /**
+     * Default Symfony configuration
+     */
+    private const SYMFONY_DEFAULTS = [
+        'env_file' => null,
+        'kernel' => [
+            'bootstrap' => 'app/autoload.php',
+            'path' => 'app/AppKernel.php',
+            'class' => 'AppKernel',
+            'env' => self::DEFAULT_ENV,
+            'debug' => self::DEFAULT_DEBUG_MODE
+        ]
+    ];
+
+    /**
+     * Default Symfony 4 configuration
+     */
+    private const SYMFONY_4_DEFAULTS = [
+        'env_file' => '.env',
+        'kernel' => [
+            'bootstrap' => null,
+            'path' => 'src/Kernel.php',
+            'class' => 'App\Kernel',
+            'env' => self::DEFAULT_ENV,
+            'debug' => self::DEFAULT_DEBUG_MODE
+        ]
+    ];
 
     /**
      * @var CrossContainerProcessor|null
@@ -99,18 +127,15 @@ final class SymfonyExtension implements Extension
     public function configure(ArrayNodeDefinition $builder): void
     {
         $builder
-            ->addDefaultsIfNotSet()
-                ->children()
-                    ->scalarNode('env_file')->defaultNull()->end()
-                    ->arrayNode('kernel')
-                        ->addDefaultsIfNotSet()
-                        ->children()
-                            ->scalarNode('bootstrap')->defaultValue('app/autoload.php')->end()
-                            ->scalarNode('path')->defaultValue('app/AppKernel.php')->end()
-                            ->scalarNode('class')->defaultValue('AppKernel')->end()
-                            ->scalarNode('env')->defaultValue('test')->end()
-                            ->booleanNode('debug')->defaultTrue()->end()
-                        ->end()
+            ->children()
+                ->scalarNode('env_file')->end()
+                ->arrayNode('kernel')
+                    ->children()
+                        ->scalarNode('bootstrap')->end()
+                        ->scalarNode('path')->end()
+                        ->scalarNode('class')->end()
+                        ->scalarNode('env')->end()
+                        ->booleanNode('debug')->end()
                     ->end()
                 ->end()
             ->end()
@@ -122,15 +147,7 @@ final class SymfonyExtension implements Extension
      */
     public function load(ContainerBuilder $container, array $config): void
     {
-        if (null !== $config['env_file']) {
-            $this->loadEnvVars($container, $config['env_file']);
-
-            $environment = false !== getenv('APP_ENV') ? getenv('APP_ENV') : self::DEFAULT_ENV;
-            $debugMode = false !== getenv('APP_DEBUG') ? getenv('APP_DEBUG') : self::DEBUG_MODE;
-
-            $config['kernel']['env'] = $environment;
-            $config['kernel']['kernel'] = $debugMode;
-        }
+        $config = $this->autoconfigure($container, $config);
 
         $this->loadKernel($container, $config['kernel']);
         $this->loadKernelContainer($container);
@@ -149,6 +166,37 @@ final class SymfonyExtension implements Extension
      */
     public function process(ContainerBuilder $container): void
     {
+    }
+
+    /**
+     * @param ContainerBuilder $container
+     * @param array $userConfig
+     * @return array
+     */
+    private function autoconfigure(ContainerBuilder $container, array $userConfig) {
+
+        $defaults = self::SYMFONY_DEFAULTS;
+
+        $symfonyFlexKernelPath = sprintf('%s/%s', $container->getParameter('paths.base'), self::SYMFONY_4_DEFAULTS['kernel']['path']);
+        if (file_exists($symfonyFlexKernelPath)) {
+            $defaults = self::SYMFONY_4_DEFAULTS;
+        }
+
+        $config = array_replace_recursive($defaults, $userConfig);
+
+        if (null !== $config['env_file']) {
+            $this->loadEnvVars($container, $config['env_file']);
+
+            if (!isset($userConfig['kernel']['env']) && false !== getenv('APP_ENV')) {
+                $config['kernel']['env'] = getenv('APP_ENV');
+            }
+
+            if (!isset($userConfig['kernel']['debug']) && false !== getenv('APP_DEBUG')) {
+                $config['kernel']['debug'] = getenv('APP_DEBUG');
+            }
+        }
+
+        return $config;
     }
 
     /**
@@ -185,9 +233,9 @@ final class SymfonyExtension implements Extension
     {
         $containerDefinition = new Definition(Container::class);
         $containerDefinition->setFactory([
-            new Reference(self::KERNEL_ID),
-            'getContainer',
-        ]);
+                                             new Reference(self::KERNEL_ID),
+                                             'getContainer',
+                                         ]);
 
         $container->setDefinition(self::KERNEL_CONTAINER_ID, $containerDefinition);
     }
@@ -215,9 +263,9 @@ final class SymfonyExtension implements Extension
     {
         $containerDefinition = new Definition(Container::class);
         $containerDefinition->setFactory([
-            new Reference(self::SHARED_KERNEL_ID),
-            'getContainer',
-        ]);
+                                             new Reference(self::SHARED_KERNEL_ID),
+                                             'getContainer',
+                                         ]);
 
         $container->setDefinition(self::SHARED_KERNEL_CONTAINER_ID, $containerDefinition);
     }
@@ -282,9 +330,9 @@ final class SymfonyExtension implements Extension
         }
 
         $minkExtension->registerDriverFactory(new SymfonyDriverFactory(
-            'symfony',
-            new Reference(self::DRIVER_KERNEL_ID)
-        ));
+                                                  'symfony',
+                                                  new Reference(self::DRIVER_KERNEL_ID)
+                                              ));
     }
 
     /**
